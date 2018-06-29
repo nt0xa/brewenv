@@ -1,0 +1,551 @@
+#!/usr/bin/env bash
+set -e
+
+if [[ -n $BREWENV_DEBUG ]]; then
+    export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
+    set -x
+fi
+
+abort() {
+  local message=$1
+  local usage=$2
+  local usage_func
+
+  echo "brewenv: $message"
+
+  {
+    if [[ -n $usage ]]; then
+      usage_func="${FUNCNAME[1]%%_command}_usage"
+
+      if type "$usage_func" >/dev/null 2>&1; then
+        echo
+        $usage_func
+      else
+        echo
+        usage
+      fi
+    fi
+  } >&2
+
+  exit 1
+}
+
+dir_resolve() {
+  cd "$1" 2>/dev/null || return $?
+  pwd -P
+}
+
+set_home_dir() {
+  # Set home for global Homebrew environments
+  if [[ -z $BREWENV_HOME ]]; then
+    if [[ -z $XDG_DATA_HOME ]]; then
+      BREWENV_HOME="${HOME}/.brewenv"
+    else
+      # Respect XDG Base Directory
+      BREWENV_HOME="${XDG_DATA_HOME}/brewenv"
+    fi
+  fi
+
+  export BREWENV_HOME
+
+  if ! [[ -d $BREWENV_HOME ]]; then
+    mkdir -p "$BREWENV_HOME/environments"
+  fi
+}
+
+usage() {
+  echo "Usage: brewenv <command> [<options>]"
+  echo
+  echo "Available commands are:"
+
+  local commands=(help init list create activate deactivate)
+  local desc usage
+
+  for command in "${commands[@]}"; do
+    usage="${command}_usage"
+    desc=$($usage | sed -e '/^Usage/d' -e '/^$/d' -e '/^ /d' | head -n1)
+    echo -e "    $command\\t$desc"
+  done
+}
+
+help_usage() {
+  echo "Usage: brewenv help <command>"
+  echo
+  echo "Shows help for the command"
+}
+
+help_command() {
+  local command=$1
+
+  if type "${command}_command" >/dev/null 2>&1; then
+    "${command}_usage"
+  else
+    {
+      echo "brewenv: unknown command '$command'"
+      echo
+      usage
+    } >&2
+    exit 1
+  fi
+}
+
+init_usage() {
+  echo "Usage: brewenv init -h"
+  echo "       brewenv init -"
+  echo
+  echo "Returns initialization code"
+  echo
+  echo "Options:"
+  echo "    -h/--help    Shows help for the command"
+}
+
+init_command() {
+  if [[ $# -eq 0 ]]; then
+    abort "missing options" 1
+  fi
+
+  local postional=()
+  local eval
+
+  while [[ $# -gt 0 ]]; do
+    local option="$1"
+
+    case $option in
+      -h | --help)
+        init_usage
+        exit 0
+        ;;
+
+      -)
+        eval=1
+        shift
+        ;;
+
+      -*)
+        abort "invalid option '$1'" 1
+        ;;
+
+      *)
+        postional+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  set -- "${postional[@]}"
+
+  if [[ $# -gt 0 ]] && [[ -z $eval ]]; then
+    abort "invalid arguments '$*'" 1
+  fi
+
+  if [[ -n $eval ]]; then
+    init_eval
+  fi
+}
+
+init_eval() {
+    cat <<-'END'
+brewenv() {
+  local command output
+  command="${1:-}"
+
+  if [[ $# -gt 0 ]]; then
+    shift
+  fi
+
+  case "$command" in
+    activate)
+      output=$(command brewenv activate "$@")
+      if [[ $? -eq 0 ]]; then
+        BREWENV_ENV="$output"
+        eval "$(command brewenv activate -)"
+      else
+        echo "$output" >&2
+        exit 1
+      fi
+      ;;
+
+    deactivate)
+      command brewenv deactivate "$@"
+      if [[ $? -eq 0 ]]; then
+        eval "$(command brewenv deactivate -)"
+      fi
+      ;;
+
+    *)
+      command brewenv "$command" "$@"
+      ;;
+  esac
+}
+END
+}
+
+list_usage() {
+  echo "Usage: brewenv list"
+  echo
+  echo "Lists global environments"
+  echo
+  echo "Options:"
+  echo "    -h/--help    Shows help for the command"
+}
+
+list_command() {
+  local postional=()
+
+  while [[ $# -gt 0 ]]; do
+    local option="$1"
+
+    case $option in
+      -h | --help)
+        list_usage
+        exit 0
+        ;;
+
+      -*)
+        abort "invalid option '$1'" 1
+        ;;
+
+      *)
+        postional+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  set -- "${postional[@]}"
+
+  if [[ $# -gt 1 ]]; then
+    abort "too many arguments '$*'" 1
+  fi
+
+  local prefix="$BREWENV_HOME/environments"
+  local name
+
+  shopt -s nullglob
+
+  for env in "$prefix"/*; do
+    name="${env##$prefix/}"
+    if [[ $env == "$BREWENV_ENV" ]]; then
+      echo "* $name"
+    else
+      echo "  $name"
+    fi
+  done
+
+  shopt -u nullglob
+}
+
+create_usage() {
+  echo "Usage: brewenv create <path>"
+  echo "       brewenv create -g <name>"
+  echo
+  echo "Creates a new environment"
+  echo "By default (without '-g' option) local environment at <path> will be created"
+  echo
+  echo "Options:"
+  echo "    -h/--help      Shows help for the command"
+  echo "    -g/--global    Create global environment at \$BREWENV_HOME"
+}
+
+create_command() {
+  if [[ $# -eq 0 ]]; then
+    abort "missing options" 1
+  fi
+
+  local postional=()
+  local global
+
+  while [[ $# -gt 0 ]]; do
+    local option="$1"
+
+    case $option in
+      -h | --help)
+        create_usage
+        exit 0
+        ;;
+
+      -g | --global)
+        global=1
+        shift
+        ;;
+
+      -*)
+        abort "invalid option '$1'" 1
+        ;;
+
+      *)
+        postional+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  set -- "${postional[@]}"
+
+  if [[ $# -gt 1 ]]; then
+    abort "too many arguments '$*'" 1
+  fi
+
+  if [[ -z $1 ]]; then
+    {
+      if [[ -n $global ]]; then
+        abort "missing <name> argument" 1
+      else
+        abort "missing <path> argument" 1
+      fi
+
+      echo
+      create_usage
+    } >&2
+    exit 1
+  fi
+
+  local path
+
+  if [[ -n $global ]]; then
+    if ! [[ $1 == */* ]]; then
+      path="$BREWENV_HOME/environments/$1"
+    else
+      abort "invalid <name> '$1'"
+    fi
+  else
+    path=$1
+  fi
+
+  if [[ -d $path ]] || [[ -f $path ]]; then
+    if [[ -n $global ]]; then
+      abort "global name '$1' already exists"
+    else
+      abort "local path '$1' already exists"
+    fi
+  fi
+
+  mkdir -p "$path"
+
+  local brew_url="https://github.com/Homebrew/brew/tarball/master"
+
+  echo "Downloading homebrew..."
+
+  curl -L "$brew_url" 2>/dev/null | tar xz --strip 1 -C "$path"
+
+  echo "Homebrew successfully downloaded to '$path'"
+}
+
+activate_usage() {
+  echo "Usage: brewenv activate <path>"
+  echo "       brewenv activate -g <name>"
+  echo
+  echo "Activates the environment"
+  echo "By default (without '-g' option) local environment from <path> will be activated"
+  echo
+  echo "Options:"
+  echo "    -h/--help      Shows help for the command"
+  echo "    -g/--global    Activate global environment from \$BREWENV_HOME"
+}
+
+activate_command() {
+  if [[ $# -eq 0 ]]; then
+    abort "missing options" 1
+  fi
+
+  local postional=()
+  local global eval
+
+  while [[ $# -gt 0 ]]; do
+    local option="$1"
+
+    case $option in
+      -h | --help)
+        activate_usage
+        exit 0
+        ;;
+
+      -g | --global)
+        global=1
+        shift
+        ;;
+
+      -)
+        eval=1
+        shift
+        ;;
+
+      -*)
+        abort "invalid option '$1'" 1
+        ;;
+
+      *)
+        postional+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  set -- "${postional[@]}"
+
+  if [[ $# -gt 1 ]]; then
+    abort "too many arguments '$*'" 1
+  fi
+
+  if [[ -n $eval ]]; then
+    activate_eval
+    exit 0
+  fi
+
+  if [[ -z $1 ]]; then
+    {
+      if [[ -n $global ]]; then
+        abort "missing <name> argument" 1
+      else
+        abort "missing <path> argument" 1
+      fi
+
+      echo
+      activate_usage
+    } >&2
+    exit 1
+  fi
+
+  local path
+
+  if [[ -n $global ]]; then
+    if ! [[ $1 == */* ]]; then
+      path="$BREWENV_HOME/environments/$1"
+    else
+      abort "invalid <name> '$1'"
+    fi
+  else
+    path=$1
+  fi
+
+  if ! [[ -d $path ]]; then
+    abort "invalid environment, path '$path' not exists"
+  fi
+
+  path=$(dir_resolve "$path")
+
+  if ! [[ -f "$path/bin/brew" ]]; then
+    abort "invalid environment, missing brew executable '$path/bin/brew'"
+  fi
+
+  echo "$path"
+}
+
+activate_eval() {
+[[ -n $BREWENV_DEBUG ]] && set -x
+
+  cat <<-'END'
+if [[ -n $BREWENV_OLD_PATH ]]; then
+  export PATH="$BREWENV_OLD_PATH"
+  unset BREWENV_OLD_PATH
+fi
+
+export BREWENV_ENV
+export BREWENV_OLD_PATH=$PATH
+export PATH="$BREWENV_ENV/bin:$PATH"
+END
+}
+
+deactivate_usage() {
+  echo "Usage: brewenv deactivate"
+  echo
+  echo "Deactivates current environment"
+  echo
+  echo "Options:"
+  echo "    -h/--help      Shows help for the command"
+}
+
+deactivate_command() {
+  local postional=()
+  local global eval
+
+  while [[ $# -gt 0 ]]; do
+    local option="$1"
+
+    case $option in
+      -h | --help)
+        deactivate_usage
+        exit 0
+        ;;
+
+      -)
+        eval=1
+        shift
+        ;;
+
+      -*)
+        abort "invalid option '$1'" 1
+        ;;
+
+      *)
+        postional+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  set -- "${postional[@]}"
+
+  if [[ $# -gt 0 ]]; then
+    abort "too many arguments '$*'" 1
+  fi
+
+  if [[ -n $eval ]]; then
+    deactivate_eval
+    exit 0
+  fi
+}
+
+deactivate_eval() {
+  cat <<-'END'
+if [[ -n $BREWENV_OLD_PATH ]]; then
+  export PATH="$BREWENV_OLD_PATH"
+  unset BREWENV_OLD_PATH
+fi
+
+unset BREWENV_ENV
+END
+}
+
+set_home_dir
+
+command="${1:-}"
+
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+case "$command" in
+  "")
+    usage >&2
+    exit 1
+    ;;
+
+  help)
+    help_command "$@"
+    ;;
+
+  init)
+    init_command "$@"
+    ;;
+
+  list)
+    list_command "$@"
+    ;;
+
+  create)
+    create_command "$@"
+    ;;
+
+  activate)
+    activate_command "$@"
+    ;;
+
+  deactivate)
+    deactivate_command "$@"
+    ;;
+
+  *)
+    abort "invalid command '$command'" 1
+    ;;
+esac
