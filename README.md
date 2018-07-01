@@ -28,7 +28,7 @@ export BREWENV_HOME="$HOME/.brewenv"
 4. Add this lines to your `.bashrc` or `.zshrc`:
 
 ```sh
-if command -v >/dev/null 2>&1; then
+if command -v brewenv >/dev/null 2>&1; then
   eval "$(brewenv init -)"
 fi
 ```
