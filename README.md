@@ -7,6 +7,32 @@ In fact, it is just helps you to download Homebrew to selected directory and hoo
 
 ### From git
 
+1. Clone the repository:
+
+```sh
+$ git clone https://github.com/russtone/brewenv ~/.brewenv
+```
+
+2. Add `brewenv` to your `$PATH`:
+
+```sh
+export PATH="$HOME/.brewenv:$PATH"
+```
+
+3. Set your `$BREWENV_HOME` (place, where your global environments will be placed):
+
+```sh
+export BREWENV_HOME="$HOME/.brewenv"
+```
+
+4. Add this lines to your `.bashrc` or `.zshrc`:
+
+```sh
+if command -v >/dev/null 2>&1; then
+  eval "$(brewenv init -)"
+fi
+```
+
 ## Usage
 
 ### Global environments
