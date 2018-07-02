@@ -21,6 +21,8 @@ export PATH="$HOME/.brewenv:$PATH"
 
 3. Set your `$BREWENV_HOME` (place, where your global environments will be placed):
 
+By default it will be `$XDG_DATA_HOME/brewenv` or `~/.brewenv` (if `$XDG_DATA_HOME` is not set).
+
 ```sh
 export BREWENV_HOME="$HOME/.brewenv"
 ```
