@@ -11,7 +11,7 @@ abort() {
   local usage=$2
   local usage_func
 
-  echo "brewenv: $message"
+  >&2 echo "brewenv: $message"
 
   {
     if [[ -n $usage ]]; then
@@ -156,12 +156,11 @@ brewenv() {
   case "$command" in
     activate)
       output=$(command brewenv activate "$@")
-      if [[ $? -eq 0 ]]; then
-        BREWENV_ENV="$output"
+      if [[ $ouput == "BREWENV_ENV="* ]]; then
+        BREWENV_ENV="${output##BREWENV_ENV=}"
         eval "$(command brewenv activate -)"
       else
-        echo "$output" >&2
-        exit 1
+        >&2 echo "$output"
       fi
       ;;
 
@@ -428,7 +427,7 @@ activate_command() {
     abort "invalid environment, missing brew executable '$path/bin/brew'"
   fi
 
-  echo "$path"
+  echo "BREENV_ENV=$path"
 }
 
 activate_eval() {
