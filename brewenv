@@ -156,7 +156,7 @@ brewenv() {
   case "$command" in
     activate)
       output=$(command brewenv activate "$@")
-      if [[ $ouput == "BREWENV_ENV="* ]]; then
+      if [[ $output == "BREWENV_ENV="* ]]; then
         BREWENV_ENV="${output##BREWENV_ENV=}"
         eval "$(command brewenv activate -)"
       else
@@ -427,7 +427,7 @@ activate_command() {
     abort "invalid environment, missing brew executable '$path/bin/brew'"
   fi
 
-  echo "BREENV_ENV=$path"
+  echo "BREWENV_ENV=$path"
 }
 
 activate_eval() {
